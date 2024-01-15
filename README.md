@@ -6,7 +6,7 @@ Main Changes:
 - markdown-it rules are now async
 - uses chrome extension service worker for parsing
 
-Originally forked from [@iktakahiro/markdown-it-katex](https://github.com/iktakahiro/markdown-it-katex)
+Originally forked from [@microsoft/vscode-markdown-it-katex](https://github.com/microsoft/vscode-markdown-it-katex)
 
 ## Usage 
 
