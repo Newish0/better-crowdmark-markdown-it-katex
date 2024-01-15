@@ -1,32 +1,83 @@
-import katex from 'katex';
-import type * as StateBlock from 'markdown-it/lib/rules_block/state_block';
-import type StateCore from 'markdown-it/lib/rules_core/state_core';
-import type * as StateInline from 'markdown-it/lib/rules_inline/state_inline';
-import type * as Token from 'markdown-it/lib/token';
-import { MarkdownKatexOptions } from '../types';
+/**
+ * Fork of `vscode-markdown-it-katex`
+ *
+ * Modified to parse Katex in chrome extension service worker.
+ *
+ */
+
+// TODO: Turn this into an actual fork and add as submodule to repo
+
+import type * as StateBlock from "markdown-it/lib/rules_block/state_block";
+import type StateCore from "markdown-it/lib/rules_core/state_core";
+import type * as StateInline from "markdown-it/lib/rules_inline/state_inline";
+import type * as Token from "markdown-it/lib/token";
+import { MarkdownKatexOptions } from "./types";
+import { katexToHtml } from "@/services/katex";
+
+type RenderKatexFunction = () => Promise<void>;
+const batch: RenderKatexFunction[] = [];
+
+export async function renderBatch() {
+    await Promise.all(batch.map((r) => r()));
+    batch.splice(0, batch.length);
+}
+
+/**
+ * Create a function that will render the given latex.
+ * @param latex
+ * @param options
+ * @returns
+ */
+function createRenderFunc(
+    latex: string,
+    options?: katex.KatexOptions
+): [string, RenderKatexFunction] {
+    const elnId = `KM-${crypto.randomUUID()}`;
+    const placeholder = `<span id="${elnId}">Katex Placeholder - <code>renderBatch</code> to resolve.</span>`;
+    return [
+        placeholder,
+        async () => {
+            const html = await katexToHtml(latex, options);
+            const placeholder = document.querySelector(`#${elnId}`);
+            if (!placeholder)
+                throw new Error(
+                    `Failed to render latex at placeholder ${elnId}. Cannot find in DOM.`
+                );
+            placeholder.innerHTML = html;
+            placeholder.parentElement?.append(...placeholder.children);
+            placeholder.remove();
+        },
+    ] as const;
+}
 
 /**
  * Test if potential opening or closing delimiter
  */
-function isValidInlineDelim(state: StateInline, pos: number): { can_open: boolean; can_close: boolean; } {
+function isValidInlineDelim(
+    state: StateInline,
+    pos: number
+): { can_open: boolean; can_close: boolean } {
     const prevChar = state.src[pos - 1];
     const char = state.src[pos];
     const nextChar = state.src[pos + 1];
 
-    if (char !== '$') {
+    if (char !== "$") {
         return { can_open: false, can_close: false };
     }
 
     let canOpen = false;
     let canClose = false;
-    if (prevChar !== '$' && prevChar !== '\\' && (
-        prevChar === undefined || isWhitespace(prevChar) || !isWordCharacterOrNumber(prevChar)
-    )) {
+    if (
+        prevChar !== "$" &&
+        prevChar !== "\\" &&
+        (prevChar === undefined || isWhitespace(prevChar) || !isWordCharacterOrNumber(prevChar))
+    ) {
         canOpen = true;
     }
 
-    if (nextChar !== '$' && (
-        nextChar == undefined || isWhitespace(nextChar) || !isWordCharacterOrNumber(nextChar))
+    if (
+        nextChar !== "$" &&
+        (nextChar == undefined || isWhitespace(nextChar) || !isWordCharacterOrNumber(nextChar))
     ) {
         canClose = true;
     }
@@ -42,17 +93,21 @@ function isWordCharacterOrNumber(char: string): boolean {
     return /^[\w\d]$/u.test(char);
 }
 
-function isValidBlockDelim(state: StateInline, pos: number): { readonly can_open: boolean; readonly can_close: boolean; } {
+function isValidBlockDelim(
+    state: StateInline,
+    pos: number
+): { readonly can_open: boolean; readonly can_close: boolean } {
     const prevChar = state.src[pos - 1];
     const char = state.src[pos];
     const nextChar = state.src[pos + 1];
     const nextCharPlus1 = state.src[pos + 2];
 
     if (
-        char === '$'
-        && prevChar !== '$' && prevChar !== '\\'
-        && nextChar === '$'
-        && nextCharPlus1 !== '$'
+        char === "$" &&
+        prevChar !== "$" &&
+        prevChar !== "\\" &&
+        nextChar === "$" &&
+        nextCharPlus1 !== "$"
     ) {
         return { can_open: true, can_close: true };
     }
@@ -66,7 +121,7 @@ function inlineMath(state: StateInline, silent: boolean): boolean {
     }
 
     const lastToken = state.tokens.at(-1);
-    if (lastToken?.type === 'html_inline') {
+    if (lastToken?.type === "html_inline") {
         // We may be inside of inside of inline html
         if (/^<\w+.+[^/]>$/.test(lastToken.content)) {
             return false;
@@ -98,7 +153,7 @@ function inlineMath(state: StateInline, silent: boolean): boolean {
         }
 
         // Even number of escapes, potential closing delimiter found
-        if (((match - pos) % 2) == 1) {
+        if ((match - pos) % 2 == 1) {
             break;
         }
         match += 1;
@@ -133,7 +188,7 @@ function inlineMath(state: StateInline, silent: boolean): boolean {
     }
 
     if (!silent) {
-        const token = state.push('math_inline', 'math', 0);
+        const token = state.push("math_inline", "math", 0);
         token.markup = "$";
         token.content = state.src.slice(start, match);
     }
@@ -143,14 +198,18 @@ function inlineMath(state: StateInline, silent: boolean): boolean {
 }
 
 function blockMath(state: StateBlock, start: number, end: number, silent: boolean): boolean {
-    var lastLine, next, lastPos, found = false, token,
+    var lastLine,
+        next,
+        lastPos,
+        found = false,
+        token,
         pos = state.bMarks[start] + state.tShift[start],
-        max = state.eMarks[start]
+        max = state.eMarks[start];
 
     if (pos + 2 > max) {
         return false;
     }
-    if (state.src.slice(pos, pos + 2) !== '$$') {
+    if (state.src.slice(pos, pos + 2) !== "$$") {
         return false;
     }
 
@@ -160,14 +219,13 @@ function blockMath(state: StateBlock, start: number, end: number, silent: boolea
     if (silent) {
         return true;
     }
-    if (firstLine.trim().slice(-2) === '$$') {
+    if (firstLine.trim().slice(-2) === "$$") {
         // Single line expression
         firstLine = firstLine.trim().slice(0, -2);
         found = true;
     }
 
-    for (next = start; !found;) {
-
+    for (next = start; !found; ) {
         next++;
 
         if (next >= end) {
@@ -182,13 +240,12 @@ function blockMath(state: StateBlock, start: number, end: number, silent: boolea
             break;
         }
 
-        if (state.src.slice(pos, max).trim().slice(-2) === '$$') {
-            lastPos = state.src.slice(0, max).lastIndexOf('$$');
+        if (state.src.slice(pos, max).trim().slice(-2) === "$$") {
+            lastPos = state.src.slice(0, max).lastIndexOf("$$");
             lastLine = state.src.slice(pos, lastPos);
             found = true;
-        }
-        else if (state.src.slice(pos, max).trim().includes('$$')) {
-            lastPos = state.src.slice(0, max).trim().indexOf('$$');
+        } else if (state.src.slice(pos, max).trim().includes("$$")) {
+            lastPos = state.src.slice(0, max).trim().indexOf("$$");
             lastLine = state.src.slice(pos, lastPos);
             found = true;
         }
@@ -196,20 +253,22 @@ function blockMath(state: StateBlock, start: number, end: number, silent: boolea
 
     state.line = next + 1;
 
-    token = state.push('math_block', 'math', 0);
+    token = state.push("math_block", "math", 0);
     token.block = true;
-    token.content = (firstLine && firstLine.trim() ? firstLine + '\n' : '')
-        + state.getLines(start + 1, next, state.tShift[start], true)
-        + (lastLine && lastLine.trim() ? lastLine : '');
+    token.content =
+        (firstLine && firstLine.trim() ? firstLine + "\n" : "") +
+        state.getLines(start + 1, next, state.tShift[start], true) +
+        (lastLine && lastLine.trim() ? lastLine : "");
     token.map = [start, state.line];
-    token.markup = '$$';
+    token.markup = "$$";
     return true;
 }
 
 function blockBareMath(state: StateBlock, start: number, end: number, silent: boolean): boolean {
-    var lastLine, found = false,
+    var lastLine,
+        found = false,
         pos = state.bMarks[start] + state.tShift[start],
-        max = state.eMarks[start]
+        max = state.eMarks[start];
 
     const firstLine = state.src.slice(pos, max);
 
@@ -232,11 +291,10 @@ function blockBareMath(state: StateBlock, start: number, end: number, silent: bo
     }
 
     // Handle Single line code block
-    let next = start
+    let next = start;
     if (!/\\end[\{\}\w]*\s*$/.test(firstLine)) {
-
         let nestingCount = 0;
-        for (; !found;) {
+        for (; !found; ) {
             next++;
             if (next >= end) {
                 break;
@@ -251,9 +309,9 @@ function blockBareMath(state: StateBlock, start: number, end: number, silent: bo
             }
             const line = state.src.slice(pos, max);
             for (const match of line.matchAll(/\\begin|\\end/g)) {
-                if (match[0] === '\\begin') {
+                if (match[0] === "\\begin") {
                     ++nestingCount;
-                } else if (match[0] === '\\end') {
+                } else if (match[0] === "\\end") {
                     --nestingCount;
                     if (nestingCount < 0) {
                         const lastPos = max;
@@ -267,13 +325,14 @@ function blockBareMath(state: StateBlock, start: number, end: number, silent: bo
 
     state.line = next + 1;
 
-    const token = state.push('math_block', 'math', 0);
+    const token = state.push("math_block", "math", 0);
     token.block = true;
-    token.content = (firstLine && firstLine.trim() ? firstLine + '\n' : '')
-        + state.getLines(start + 1, next, state.tShift[start], true)
-        + (lastLine && lastLine.trim() ? lastLine : '');
+    token.content =
+        (firstLine && firstLine.trim() ? firstLine + "\n" : "") +
+        state.getLines(start + 1, next, state.tShift[start], true) +
+        (lastLine && lastLine.trim() ? lastLine : "");
     token.map = [start, state.line];
-    token.markup = '$$';
+    token.markup = "$$";
     return true;
 }
 
@@ -308,7 +367,7 @@ function inlineMathBlock(state: StateInline, silent: boolean): boolean {
         }
 
         // Even number of escapes, potential closing delimiter found
-        if (((match - pos) % 2) == 1) {
+        if ((match - pos) % 2 == 1) {
             break;
         }
         match += 2;
@@ -343,7 +402,7 @@ function inlineMathBlock(state: StateInline, silent: boolean): boolean {
     }
 
     if (!silent) {
-        token = state.push('math_block', 'math', 0);
+        token = state.push("math_block", "math", 0);
         token.block = true;
         token.markup = "$$";
         token.content = state.src.slice(start, match);
@@ -383,17 +442,18 @@ function inlineBareBlock(state: StateInline, silent: boolean): boolean {
         }
     }
 
-    if (typeof foundLine === 'undefined') {
+    if (typeof foundLine === "undefined") {
         return false;
     }
 
-    const endIndex = lines.slice(0, foundLine + 1).reduce((p, c) => p + c.length, 0) + foundLine + 1;
+    const endIndex =
+        lines.slice(0, foundLine + 1).reduce((p, c) => p + c.length, 0) + foundLine + 1;
 
     if (!silent) {
-        const token = state.push('math_inline_bare_block', 'math', 0);
+        const token = state.push("math_inline_bare_block", "math", 0);
         token.block = true;
         token.markup = "$$";
-        token.content = text.slice(1, endIndex)
+        token.content = text.slice(1, endIndex);
     }
 
     state.pos = state.pos + endIndex;
@@ -402,7 +462,12 @@ function inlineBareBlock(state: StateInline, silent: boolean): boolean {
 
 // For any html block that contains math, replace the html block token with new tokens that separate out
 // the html blocks from the math
-function handleMathInHtml(state: StateCore, mathType: string, mathMarkup: string, mathRegex: RegExp) {
+function handleMathInHtml(
+    state: StateCore,
+    mathType: string,
+    mathMarkup: string,
+    mathRegex: RegExp
+) {
     const tokens = state.tokens;
 
     for (let index = tokens.length - 1; index >= 0; index--) {
@@ -426,7 +491,12 @@ function handleMathInHtml(state: StateCore, mathType: string, mathMarkup: string
             const html_after_math = match.groups.html_after_math;
 
             if (html_before_math) {
-                newTokens.push({ ...currentToken, type: "html_block", map: null, content: html_before_math } as Token);
+                newTokens.push({
+                    ...currentToken,
+                    type: "html_block",
+                    map: null,
+                    content: html_before_math,
+                } as Token);
             }
 
             if (math) {
@@ -442,7 +512,12 @@ function handleMathInHtml(state: StateCore, mathType: string, mathMarkup: string
             }
 
             if (html_after_math) {
-                newTokens.push({ ...currentToken, type: "html_block", map: null, content: html_after_math } as Token);
+                newTokens.push({
+                    ...currentToken,
+                    type: "html_block",
+                    map: null,
+                    content: html_after_math,
+                } as Token);
             }
         }
 
@@ -463,21 +538,24 @@ function escapeHtml(unsafe: string): string {
         .replace(/'/g, "&#039;");
 }
 
-
-export default function (md: import('markdown-it'), options?: MarkdownKatexOptions) {
+export default function (md: import("markdown-it"), options?: MarkdownKatexOptions) {
     const enableBareBlocks = options?.enableBareBlocks;
     const enableMathBlockInHtml = options?.enableMathBlockInHtml;
     const enableMathInlineInHtml = options?.enableMathInlineInHtml;
 
     const katexInline = (latex: string) => {
-        const displayMode = /\\begin\{(align|equation|gather|cd|alignat)\}/ig.test(latex);
+        const displayMode = /\\begin\{(align|equation|gather|cd|alignat)\}/gi.test(latex);
         try {
-            return katex.renderToString(latex, { ...options, displayMode });
+            const [placeholder, renderFunc] = createRenderFunc(latex, { ...options, displayMode });
+            batch.push(renderFunc);
+            return placeholder;
         } catch (error) {
             if (options?.throwOnError) {
                 console.log(error);
             }
-            return `<span class="katex-error" title="${escapeHtml(latex)}">${escapeHtml(error + '')}</span>`;
+            return `<span class="katex-error" title="${escapeHtml(latex)}">${escapeHtml(
+                error + ""
+            )}</span>`;
         }
     };
 
@@ -487,39 +565,54 @@ export default function (md: import('markdown-it'), options?: MarkdownKatexOptio
 
     const katexBlockRenderer = (latex: string) => {
         try {
-            return `<p class="katex-block">${katex.renderToString(latex, { ...options, displayMode: true })}</p>`;
+            const [placeholder, renderFunc] = createRenderFunc(latex, {
+                ...options,
+                displayMode: true,
+            });
+            batch.push(renderFunc);
+
+            return `<p class="katex-block">${placeholder}</p>`;
         } catch (error) {
             if (options?.throwOnError) {
                 console.log(error);
             }
-            return `<p class="katex-block katex-error" title="${escapeHtml(latex)}">${escapeHtml(error + '')}</p>`;
+            return `<p class="katex-block katex-error" title="${escapeHtml(latex)}">${escapeHtml(
+                error + ""
+            )}</p>`;
         }
-    }
+    };
 
     const blockRenderer = (tokens: readonly Token[], idx: number) => {
-        return katexBlockRenderer(tokens[idx].content) + '\n';
-    }
+        return katexBlockRenderer(tokens[idx].content) + "\n";
+    };
 
-    md.inline.ruler.after('escape', 'math_inline', inlineMath);
-    md.inline.ruler.after('escape', 'math_inline_block', inlineMathBlock);
+    md.inline.ruler.after("escape", "math_inline", inlineMath);
+    md.inline.ruler.after("escape", "math_inline_block", inlineMathBlock);
     if (enableBareBlocks) {
-        md.inline.ruler.before('text', 'math_inline_bare_block', inlineBareBlock);
+        md.inline.ruler.before("text", "math_inline_bare_block", inlineBareBlock);
     }
 
-    md.block.ruler.after('blockquote', 'math_block', (state, start, end, silent) => {
-        if (enableBareBlocks && blockBareMath(state, start, end, silent)) {
-            return true;
+    md.block.ruler.after(
+        "blockquote",
+        "math_block",
+        (state, start, end, silent) => {
+            if (enableBareBlocks && blockBareMath(state, start, end, silent)) {
+                return true;
+            }
+            return blockMath(state, start, end, silent);
+        },
+        {
+            alt: ["paragraph", "reference", "blockquote", "list"],
         }
-        return blockMath(state, start, end, silent);
-    }, {
-        alt: ['paragraph', 'reference', 'blockquote', 'list']
-    });
+    );
 
     // Regex to capture any html prior to math block, the math block (single or multi line), and any html after the math block
-    const math_block_within_html_regex = /(?<html_before_math>[\s\S]*?)\$\$(?<math>[\s\S]+?)\$\$(?<html_after_math>(?:(?!\$\$[\s\S]+?\$\$)[\s\S])*)/gm;
+    const math_block_within_html_regex =
+        /(?<html_before_math>[\s\S]*?)\$\$(?<math>[\s\S]+?)\$\$(?<html_after_math>(?:(?!\$\$[\s\S]+?\$\$)[\s\S])*)/gm;
 
     // Regex to capture any html prior to math inline, the math inline (single line), and any html after the math inline
-    const math_inline_within_html_regex = /(?<html_before_math>[\s\S]*?)\$(?<math>.*?)\$(?<html_after_math>(?:(?!\$.*?\$)[\s\S])*)/gm;
+    const math_inline_within_html_regex =
+        /(?<html_before_math>[\s\S]*?)\$(?<math>.*?)\$(?<html_after_math>(?:(?!\$.*?\$)[\s\S])*)/gm;
 
     if (enableMathBlockInHtml) {
         md.core.ruler.push("math_block_in_html_block", (state) => {
@@ -537,4 +630,4 @@ export default function (md: import('markdown-it'), options?: MarkdownKatexOptio
     md.renderer.rules.math_inline_block = blockRenderer;
     md.renderer.rules.math_inline_bare_block = blockRenderer;
     md.renderer.rules.math_block = blockRenderer;
-};
+}
