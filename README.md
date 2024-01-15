@@ -4,7 +4,7 @@ Markdown it plugin that adds [KaTeX](https://github.com/Khan/KaTeX) rendering.
 
 Forked from [@microsoft/vscode-markdown-it-katex](https://github.com/microsoft/vscode-markdown-it-katex).
 
-This is used by VS Code to render math in markdown but has been modified to work for my better-crowdmark chrome extensions. 
+This is used by VS Code to render math in markdown but has been modified to work for my [better-crowdmark](https://github.com/Newish0/better-crowdmark) chrome extensions. 
 
 Main Changes: 
 - markdown-it rules are now async
