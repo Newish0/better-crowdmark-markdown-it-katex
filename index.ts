@@ -5,7 +5,6 @@
  *
  */
 
-// TODO: Turn this into an actual fork and add as submodule to repo
 
 import type * as StateBlock from "markdown-it/lib/rules_block/state_block";
 import type StateCore from "markdown-it/lib/rules_core/state_core";
