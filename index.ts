@@ -5,7 +5,6 @@
  *
  */
 
-
 import type * as StateBlock from "markdown-it/lib/rules_block/state_block";
 import type StateCore from "markdown-it/lib/rules_core/state_core";
 import type * as StateInline from "markdown-it/lib/rules_inline/state_inline";
@@ -13,11 +12,11 @@ import type * as Token from "markdown-it/lib/token";
 import { MarkdownKatexOptions } from "./types";
 import { katexToHtml } from "@/services/katex";
 
-type RenderKatexFunction = () => Promise<void>;
+type RenderKatexFunction = (root: Element | Document) => Promise<void>;
 const batch: RenderKatexFunction[] = [];
 
-export async function renderBatch() {
-    await Promise.all(batch.map((r) => r()));
+export async function renderBatch(mdRoot: Element | Document) {
+    await Promise.all(batch.map((r) => r(mdRoot)));
     batch.splice(0, batch.length);
 }
 
@@ -35,9 +34,9 @@ function createRenderFunc(
     const placeholder = `<span id="${elnId}">Katex Placeholder - <code>renderBatch</code> to resolve.</span>`;
     return [
         placeholder,
-        async () => {
+        async (root) => {
             const html = await katexToHtml(latex, options);
-            const placeholder = document.querySelector(`#${elnId}`);
+            const placeholder = root.querySelector(`#${elnId}`);
             if (!placeholder)
                 throw new Error(
                     `Failed to render latex at placeholder ${elnId}. Cannot find in DOM.`
