@@ -12,10 +12,10 @@ import type * as Token from "markdown-it/lib/token";
 import { MarkdownKatexOptions } from "./types";
 import { katexToHtml } from "@/services/katex";
 
-type RenderKatexFunction = (root: Element | Document) => Promise<void>;
+type RenderKatexFunction = (root: Element) => Promise<void>;
 const batch: RenderKatexFunction[] = [];
 
-export async function renderBatch(mdRoot: Element | Document) {
+export async function renderBatch(mdRoot: Element) {
     await Promise.all(batch.map((r) => r(mdRoot)));
     batch.splice(0, batch.length);
 }
@@ -31,19 +31,12 @@ function createRenderFunc(
     options?: katex.KatexOptions
 ): [string, RenderKatexFunction] {
     const elnId = `KM-${crypto.randomUUID()}`;
-    const placeholder = `<span id="${elnId}">Katex Placeholder - <code>renderBatch</code> to resolve.</span>`;
+    const placeholder = `#KATEX-PLACEHOLDER-${elnId}#`;
     return [
         placeholder,
         async (root) => {
             const html = await katexToHtml(latex, options);
-            const placeholder = root.querySelector(`#${elnId}`);
-            if (!placeholder)
-                throw new Error(
-                    `Failed to render latex at placeholder ${elnId}. Cannot find in DOM.`
-                );
-            placeholder.innerHTML = html;
-            placeholder.parentElement?.append(...placeholder.children);
-            placeholder.remove();
+            root.innerHTML = root.innerHTML.replace(placeholder, html);
         },
     ] as const;
 }
